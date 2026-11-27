@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "مزامنة سند",
+  "version": "1.0.0",
+  "description": "تفتح التحضير الذكي في الخلفية وتجلب غياب الطلاب والمعلمين إلى سند. إعداد: الفريق التقني بالمدرسة",
+  "permissions": ["storage", "alarms", "scripting", "tabs"],
+  "host_permissions": ["https://s.tahdir.net/*", "https://taqweem.wasl.uk/*"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_title": "مزامنة سند", "default_popup": "popup.html" }
+}

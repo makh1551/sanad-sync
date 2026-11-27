@@ -1,0 +1,16 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><style>
+body{width:320px;margin:0;padding:14px;font:15px/1.6 "Sakkal Majalla","Tajawal",Tahoma,sans-serif;color:#231F20;background:#F3F1EF}
+h1{margin:0 0 2px;font-size:19px;color:#15445A}small{color:#6D6E71}
+label{display:block;font-weight:700;margin:10px 0 4px}input[type=password]{width:100%;box-sizing:border-box;padding:9px;border:1px solid #C2C1C1;border-radius:8px;font:inherit}
+button{width:100%;margin-top:10px;padding:10px;border:0;border-radius:8px;background:#15445A;color:#fff;font:inherit;font-weight:700;cursor:pointer}button:disabled{opacity:.6}
+.row{display:flex;align-items:center;gap:8px;margin-top:10px}.row input{width:18px;height:18px}
+#log{margin-top:12px;background:#fff;border:1px solid #e2dfdb;border-radius:8px;padding:9px;white-space:pre-line;font-size:14px;min-height:40px}
+footer{margin-top:10px;font-size:12px;color:#6D6E71;text-align:center}
+</style></head><body>
+<h1>مزامنة سند 🤝</h1><small>تجلب غياب الطلاب والمعلمين من التحضير الذكي</small>
+<label for="pin">رمز دخول موقع التقويم</label><input id="pin" type="password" inputmode="numeric" autocomplete="off">
+<div class="row"><input id="auto" type="checkbox"><span>مزامنة تلقائية كل نصف ساعة (الأحد–الخميس، 7 ص – 1 م)</span></div>
+<button id="go">مزامنة الآن</button>
+<div id="log">لم تجرِ مزامنة بعد.</div>
+<footer>يجب أن تكون مسجّلاً الدخول في التحضير الذكي في هذا المتصفح.<br>إعداد: الفريق التقني بالمدرسة</footer>
+<script src="popup.js"></script></body></html>
