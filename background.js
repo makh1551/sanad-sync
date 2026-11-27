@@ -345,6 +345,14 @@ const EXTRA = ['alerts_abs', 'alerts_late', 'duty_shift', 'duty_super', 'tch_ful
 
 // تنفّذ مهمة واحدة في كل نبضة. النبضة تتكرر كل نصف دقيقة حتى تفرغ القائمة،
 // فإن أوقف المتصفح الأداة في منتصف مهمة عادت النبضة التالية وأكملت ما بعدها.
+const TRANSIENT = /Frame with ID|No frame with id|No tab with id|tab was closed|Tabs cannot be edited|Failed to fetch|NetworkError/i;
+function arErr(e) {
+  const m = String((e && e.message) || e || '');
+  if (/Frame with ID|No frame with id|No tab with id|tab was closed|Tabs cannot be edited/i.test(m)) return 'أُغلق التبويب قبل اكتمال القراءة. أعد المحاولة ولا تغلق التبويب.';
+  if (/Failed to fetch|NetworkError/i.test(m)) return 'تعذّر الاتصال بالإنترنت أو بسند. أعد المحاولة.';
+  if (/Cannot access contents|Missing host permission/i.test(m)) return 'المتصفح منع قراءة الصفحة. أعد تحميل الأداة.';
+  return m;
+}
 let RUN = false;
 async function runQueue() {
   if (RUN) return;
@@ -362,8 +370,16 @@ async function runQueue() {
   try {
     const job = q.shift(); mark(job, 'run');
     await chrome.storage.local.set({ queue: q, job: { k: job, at: Date.now() }, jobs });
-    let line; try { line = await JOBS[job](s.pin); } catch (e) { line = 'خطأ: ' + (e.message || e); }
+    let line, transient = false; try { line = await JOBS[job](s.pin); } catch (e) { transient = TRANSIENT.test(String((e && e.message) || e)); line = 'خطأ: ' + arErr(e); }
     const ok = /✅/.test(line), set = {};
+    // عطل عابر (أُغلق التبويب أو انقطع الاتصال): تُعاد المهمة مرة واحدة قبل أن تُعلَّم متعثرة
+    const cur = jobs.find(x => x.k === job && x.s === 'run');
+    if (!ok && transient && cur && !cur.r) {
+      cur.r = 1; cur.s = 'wait'; cur.line = 'تعثرت، تُعاد المحاولة…'; q.unshift(job);
+      await chrome.storage.local.set({ queue: q, job: null, jobTab: 0, jobs });
+      return;
+    }
+    if (ok) { const o = (await chrome.storage.local.get('okAt')).okAt || {}; o[job] = Date.now(); set.okAt = o; }
     if (ok && job === 'dir') set.dirDay = today();
     if (ok && job === 'logins') set.madLogins = Date.now();
     if (ok && job === 'weekly_plan') set.madPlan = today();
@@ -437,6 +453,26 @@ chrome.alarms.onAlarm.addListener(async a => {
   if (a.name === 'sanadcard') { if (day <= 4 && h >= 6 && h < 14) { try { await syncCard(); } catch (e) {} } return; }
   if (day > 4 || h < 7 || h >= 13) return; // الأحد–الخميس، 7 ص – 1 م بتوقيت الرياض
   syncAll(false);
+});
+// إعادة مهمة واحدة (أو كل المتعثرات بالرمز *) من نافذة الأداة
+chrome.runtime.onMessage.addListener((m, s, reply) => {
+  if (!m || m.type !== 'retry') return;
+  (async () => {
+    const st = await chrome.storage.local.get(['queue', 'jobs']);
+    const q = st.queue || [], jobs = st.jobs || [];
+    const ks = m.k === '*' ? jobs.filter(x => x.s === 'err').map(x => x.k) : [m.k];
+    ks.forEach(k => {
+      if (!JOBS[k] || q.includes(k)) return;
+      q.push(k);
+      const j = jobs.find(x => x.k === k);
+      if (j) { j.s = 'wait'; j.line = ''; j.r = 0; } else jobs.push({ k, s: 'wait', line: '' });
+    });
+    await chrome.storage.local.set({ queue: q, jobs });
+    chrome.alarms.create('sanadq', { delayInMinutes: 0.5, periodInMinutes: 0.5 });
+    reply(true);
+    runQueue();
+  })();
+  return true;
 });
 chrome.runtime.onMessage.addListener((m, s, reply) => { if (m === 'check') { selfCheck().then(() => reply(true)); return true; } });
 chrome.runtime.onMessage.addListener((m, s, reply) => { if (m === 'sync') { syncAll(true).then(() => syncCard().catch(() => {})).then(() => reply(true)); return true; } });

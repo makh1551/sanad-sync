@@ -16,6 +16,8 @@ h2 small{font-weight:400;color:#6D6E71}
 .ic{width:20px;text-align:center;flex:none}.tx b{display:block}.tx span{color:#6D6E71;font-size:13px}
 .bar{height:6px;background:#e9e6e1;border-radius:9px;overflow:hidden;margin:2px 0 8px}.bar i{display:block;height:100%;background:#07A869;width:0}
 #link a{color:#3D7EB9}
+button.mini{width:auto;flex:none;align-self:center;margin:0 auto 0 0;padding:2px 12px;font-size:13px;border-radius:8px;background:#b45309}button.mini.wide{display:block;width:100%;margin:0 0 6px;padding:6px}button.mini[hidden]{display:none}
+.it .tx{flex:1}
 footer{padding:0 14px 12px;font-size:12px;color:#6D6E71;text-align:center}
 </style></head><body>
 <header><h1>مزامنة سند</h1><p>تجلب بيانات التحضير الذكي ومدرستي إلى سند</p></header><div class="grad"></div>
@@ -24,7 +26,7 @@ footer{padding:0 14px 12px;font-size:12px;color:#6D6E71;text-align:center}
 <div class="row" style="margin-top:8px"><input id="auto" type="checkbox"><span>مزامنة تلقائية كل نصف ساعة (الأحد–الخميس، 7 ص – 1 م)</span></div></div>
 <button id="go">مزامنة الآن</button>
 <div class="card"><h2>البيانات السريعة <small id="at"></small></h2><div id="log" class="list"></div></div>
-<div class="card" id="bgc" hidden><h2>المهام الخلفية <small id="prog"></small></h2><div class="bar"><i id="bar"></i></div><div id="jobs"></div></div>
+<div class="card" id="bgc" hidden><h2>المهام الخلفية <small id="prog"></small></h2><div class="bar"><i id="bar"></i></div><button id="all" class="mini wide" hidden></button><div id="jobs"></div></div>
 </main>
 <footer><div id="ver"></div>يجب أن تكون مسجّلاً الدخول في التحضير الذكي ومدرستي في هذا المتصفح.<br>إعداد: الفريق التقني بالمدرسة</footer>
 <script src="popup.js"></script></body></html>
