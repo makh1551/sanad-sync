@@ -74,6 +74,43 @@ async function syncStudents(pin) {
   return 'الطلاب: ' + (abs.salami.length + abs.kingkhalid.length) + ' حالة من ' + (tot.salami + tot.kingkhalid) + ' طالباً ✅';
 }
 
+// تُنفَّذ داخل صفحة «استعراض الطلاب»: تمر على الصفحات وتقرأ الاسم والصف والفصل وجوال ولي الأمر (بدون الهوية)
+async function scrapeList() {
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const rowsOf = () => [...document.querySelectorAll('table tbody tr')];
+  for (let i = 0; i < 40 && !rowsOf().length; i++) await sleep(1000);
+  const H = [...document.querySelectorAll('table thead th')].map(x => x.innerText.trim()), ix = re => H.findIndex(h => re.test(h));
+  const ni = ix(/الاسم|الطالب/), pi = ix(/الجوال/), gi = ix(/الصف/), ci = ix(/الفصل/);
+  if (ni < 0) return { rows: [], error: 'تغيّر شكل صفحة استعراض الطلاب' };
+  const out = [], seen = new Set();
+  for (let page = 0; page < 15; page++) {
+    const rs = rowsOf(); let added = 0;
+    for (const tr of rs) {
+      const c = [...tr.children].map(td => td.innerText.trim().replace(/\s+/g, ' '));
+      const key = c[ni] + '|' + (c[gi] || '') + '|' + (c[ci] || '');
+      if (!c[ni] || seen.has(key)) continue; seen.add(key); added++;
+      out.push({ n: c[ni], g: gi >= 0 ? c[gi] : '', c: ci >= 0 ? c[ci] : '', ph: pi >= 0 ? c[pi].replace(/\D/g, '') : '' });
+    }
+    const next = [...document.querySelectorAll('button,a')].find(b => /الصفحة التالية/.test(b.innerText) && !b.disabled && !b.classList.contains('disabled') && b.getAttribute('aria-disabled') !== 'true');
+    if (!next || !added) break;
+    const first = rs[0] ? rs[0].innerText : '';
+    next.click();
+    for (let i = 0; i < 20; i++) { await sleep(500); const f = rowsOf()[0]; if (f && f.innerText !== first) break; }
+  }
+  return { rows: out };
+}
+
+async function syncDirectory(pin) {
+  const tab = await chrome.tabs.create({ url: 'https://s.tahdir.net/_students/list', active: false });
+  let d;
+  try { await waitLoad(tab.id); const [r] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: scrapeList }); d = (r && r.result) || { rows: [] }; }
+  finally { try { await chrome.tabs.remove(tab.id); } catch (e) {} }
+  if (d.error) return 'دليل الطلاب: ' + d.error;
+  if (!d.rows.length) return 'دليل الطلاب: لم تظهر القائمة.';
+  const res = await post('/api/sync', pin, { kind: 'students_list', date: today(), rows: d.rows.slice(0, 1500) });
+  return 'دليل الطلاب: ' + (res.count || d.rows.length) + ' طالباً ✅';
+}
+
 async function syncTeachers(pin) {
   const d = await grab('https://s.tahdir.net/_teachers/reports/daily');
   if (!d.rows.length) return 'المعلمون: التقرير فارغ أو لم يظهر.';
@@ -150,6 +187,9 @@ async function syncAll(manual) {
   const out = [];
   try {
     for (const f of [syncStudents, syncTeachers]) { try { out.push(await f(pin)); } catch (e) { out.push('خطأ: ' + (e.message || e)); } }
+    // دليل الطلاب وجوالات أولياء الأمور: مرة يومياً، ويدوياً دائماً
+    const dd = await chrome.storage.local.get('dirDay');
+    if (manual || dd.dirDay !== today()) { try { const line = await syncDirectory(pin); out.push(line); if (/✅/.test(line)) await chrome.storage.local.set({ dirDay: today() }); } catch (e) { out.push('خطأ: ' + (e.message || e)); } }
     // مدرستي: يدوياً دائماً، وتلقائياً مرة كل 3 ساعات للدخول ومرة يومياً للخطة
     const st = await chrome.storage.local.get(['madLogins', 'madPlan']);
     const jobs = [];
