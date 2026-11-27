@@ -147,6 +147,93 @@ async function syncTeachers(pin) {
   return 'المعلمون: ' + (res.absent != null ? res.absent + ' حالة غياب أو تأخر' : d.rows.length + ' صفاً') + ' ✅';
 }
 
+async function runIn(url, func) {
+  const tab = await chrome.tabs.create({ url, active: false });
+  try { await waitLoad(tab.id); const [r] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func }); return (r && r.result) || {}; }
+  finally { try { await chrome.tabs.remove(tab.id); } catch (e) {} }
+}
+
+// تُنفَّذ داخل صفحتي «إجراءات الغياب» و«إجراءات التأخر»: تختار كل فصل وتضغط «عرض الطلاب» فقط وتقرأ الاسم والإجمالي.
+// لا تضغط أي زر إرسال أو تحويل أو طباعة.
+async function scrapeAlerts() {
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const findSel = () => [...document.querySelectorAll('select')].find(s => s.options.length > 5 && [...s.options].some(o => / - /.test(o.text)));
+  const btn = () => [...document.querySelectorAll('button')].find(b => b.innerText.trim() === 'عرض الطلاب');
+  let sel = null;
+  for (let i = 0; i < 30 && !(sel = findSel()); i++) await sleep(1000);
+  if (!sel || !btn()) return { rows: [], error: 'لم تظهر الصفحة أو تغيّر شكلها' };
+  const snap = () => [...document.querySelectorAll('table tbody tr')].map(r => r.innerText).join('|');
+  const out = []; let classes = 0;
+  for (let i = 1; i < sel.options.length; i++) {
+    const label = sel.options[i].text.trim(), before = snap();
+    sel.selectedIndex = i;
+    sel.dispatchEvent(new Event('input', { bubbles: true })); sel.dispatchEvent(new Event('change', { bubbles: true }));
+    await sleep(300);
+    const b = btn(); if (!b) break; b.click();
+    await sleep(1500);
+    for (let j = 0; j < 9 && snap() === before; j++) await sleep(500);
+    await sleep(400);
+    const t = document.querySelector('table'); if (!t) continue;
+    const H = [...t.querySelectorAll('thead th')].map(x => x.innerText.trim());
+    const ni = Math.max(0, H.findIndex(h => /الطالب/.test(h))), ti = H.findIndex(h => /اجمالي|إجمالي/.test(h));
+    if (ti < 0) return { rows: [], error: 'تغيّر شكل الجدول' };
+    classes++;
+    for (const tr of t.querySelectorAll('tbody tr')) {
+      const c = [...tr.children].map(td => td.innerText.trim().replace(/\s+/g, ' '));
+      const n = (c[ni] || '').replace(/\d{9,}/g, '').trim(), tot = parseInt(c[ti]) || 0;
+      if (n && tot > 0) out.push({ n, label, t: tot });
+    }
+  }
+  return { rows: out, classes };
+}
+
+function clsOf(label) {
+  const kk = /خالد/.test(label), p = label.replace('خالد', '').split(' - ');
+  let g = (p[0] || '').trim(); g = GR[g] || g; const c0 = (p[1] || '').trim();
+  return { k: kk ? 'kingkhalid' : 'salami', c: (g + ' ' + (SEC[c0] || c0)).trim() };
+}
+
+async function syncAlerts(pin, type) {
+  const label = type === 'late' ? 'إنذارات التأخر' : 'إنذارات الغياب';
+  const d = await runIn('https://s.tahdir.net/_students/' + (type === 'late' ? 'alerts2' : 'alerts'), scrapeAlerts);
+  if (d.error) return label + ': ' + d.error;
+  if (!d.classes) return label + ': لم تُقرأ الفصول.';
+  const rows = (d.rows || []).map(r => Object.assign({ n: r.n, t: r.t }, clsOf(r.label)));
+  const res = await post('/api/sync', pin, { kind: 'alerts', type, date: today(), classes: d.classes, rows: rows.slice(0, 2000) });
+  return label + ': ' + (res.count || 0) + ' طالباً بلغ حد الإنذار (' + d.classes + ' فصلاً) ✅';
+}
+
+// تُنفَّذ داخل صفحتي «جدول المناوبة» و«جدول الإشراف»: قراءة فقط، لا تضغط «حذف» ولا تغيّر القوائم
+async function scrapeShifts() {
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const find = () => [...document.querySelectorAll('table')].find(t => [...t.querySelectorAll('th')].some(h => /المعلمين/.test(h.innerText)));
+  let t = null;
+  for (let i = 0; i < 30 && !(t = find()); i++) await sleep(1000);
+  if (!t) return { days: [], error: 'لم يظهر الجدول' };
+  await sleep(1500);
+  const days = [...t.querySelectorAll('tbody tr')].map(tr => {
+    const td = tr.children; if (td.length < 2) return null;
+    return { d: td[0].innerText.trim(), names: td[1].innerText.split('حذف').map(x => x.trim().replace(/\s+/g, ' ')).filter(Boolean) };
+  }).filter(x => x && x.d);
+  return { days };
+}
+
+async function syncDuty(pin, type) {
+  const label = type === 'super' ? 'جدول الإشراف' : 'جدول المناوبة';
+  const d = await runIn('https://s.tahdir.net/_teachers/' + (type === 'super' ? 'shifts2' : 'shifts'), scrapeShifts);
+  if (d.error) return label + ': ' + d.error;
+  if (!(d.days || []).length) return label + ': فارغ.';
+  const res = await post('/api/sync', pin, { kind: 'duty', type, date: today(), days: d.days.slice(0, 7) });
+  return label + ': ' + (res.count || 0) + ' تكليفاً ✅';
+}
+
+async function syncTeachersFull(pin) {
+  const d = await grab('https://s.tahdir.net/_teachers/reports/fullreport');
+  if (!d.rows.length) return 'تقرير المعلمين التراكمي: لم يظهر.';
+  const res = await post('/api/sync', pin, { kind: 'teachers_full', date: today(), headers: d.headers, rows: d.rows.slice(0, 200) });
+  return 'تقرير المعلمين التراكمي: ' + (res.count || d.rows.length) + ' ✅';
+}
+
 // تُنفَّذ داخل صفحة مدرستي: تضغط أزرار لوحة «نُظُم» وتنتظر التقرير ثم تقرؤه
 async function nizamRun(kind) {
   const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -210,7 +297,7 @@ async function syncAll(manual) {
   const { pin, device } = await chrome.storage.local.get(['pin', 'device']);
   if (!pin && !device) { await save(['الأداة غير مرتبطة. اربطها من لوحة إدارة سند.'], manual); return; }
   const lock = await chrome.storage.local.get('busy');
-  if (lock.busy && Date.now() - lock.busy < 420000) return;
+  if (lock.busy && Date.now() - lock.busy < 900000) return;
   await chrome.storage.local.set({ busy: Date.now() });
   const out = [];
   try {
@@ -218,6 +305,15 @@ async function syncAll(manual) {
     // دليل الطلاب وجوالات أولياء الأمور: مرة يومياً، ويدوياً دائماً
     const dd = await chrome.storage.local.get('dirDay');
     if (manual || dd.dirDay !== today()) { try { const line = await syncDirectory(pin); out.push(line); if (/✅/.test(line)) await chrome.storage.local.set({ dirDay: today() }); } catch (e) { out.push('خطأ: ' + (e.message || e)); } }
+    // الإنذارات والمناوبة والإشراف والتقرير التراكمي: مرة يومياً، ويدوياً دائماً
+    const xd = await chrome.storage.local.get('extraDay');
+    if (manual || xd.extraDay !== today()) {
+      let ok = true;
+      for (const f of [p => syncAlerts(p, 'absence'), p => syncAlerts(p, 'late'), p => syncDuty(p, 'shift'), p => syncDuty(p, 'super'), syncTeachersFull]) {
+        try { const line = await f(pin); out.push(line); if (!/✅/.test(line)) ok = false; } catch (e) { ok = false; out.push('خطأ: ' + (e.message || e)); }
+      }
+      if (ok) await chrome.storage.local.set({ extraDay: today() });
+    }
     // مدرستي: يدوياً دائماً، وتلقائياً مرة كل 3 ساعات للدخول ومرة يومياً للخطة
     const st = await chrome.storage.local.get(['madLogins', 'madPlan']);
     const jobs = [];
