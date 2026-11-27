@@ -386,10 +386,14 @@ async function runQueue() {
     if (ok && job === 'tt_img') set.ttDay = today();
     let xOk = s.xOk !== false; if (EXTRA.includes(job) && !ok) xOk = false; set.xOk = xOk;
     if (job === 'tch_full' && xOk) set.extraDay = today();
-    mark(job, ok ? 'ok' : 'err', line);
-    set.job = null; set.jobTab = 0; set.jobs = jobs;
+    // تُقرأ القائمة من جديد: قد يكون المستخدم ضغط «أعد» لمهمة أخرى أثناء التشغيل
+    const now2 = await chrome.storage.local.get(['jobs', 'queue']);
+    const fresh = now2.jobs || jobs, fj = fresh.find(x => x.k === job && (x.s === 'run' || x.s === 'wait'));
+    if (fj) { fj.s = ok ? 'ok' : 'err'; fj.line = line; }
+    set.job = null; set.jobTab = 0; set.jobs = fresh;
     await chrome.storage.local.set(set);
-    const bad = jobs.some(x => x.s === 'err' && /سجّل الدخول|مسجّل الدخول|لم تظهر/.test(x.line || ''));
+    q.length = 0; (now2.queue || []).forEach(x => q.push(x));
+    const bad = fresh.some(x => x.s === 'err' && /سجّل الدخول|مسجّل الدخول|لم تظهر/.test(x.line || ''));
     if (bad) { try { chrome.action.setBadgeBackgroundColor({ color: '#d9534f' }); chrome.action.setBadgeText({ text: '!' }); } catch (e) {} }
     if (!q.length) chrome.alarms.clear('sanadq');
   } finally { RUN = false; }
