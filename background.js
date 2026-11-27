@@ -1,3 +1,4 @@
+importScripts('card.js');
 const BASE = 'https://taqweem.wasl.uk';
 const SEC = { '1': 'أ', '2': 'ب', '3': 'ج', '4': 'د', '5': 'هـ', '6': 'و' };
 const GR = { 'اول': 'الأول', 'أول': 'الأول', 'ثاني': 'الثاني', 'ثالث': 'الثالث', 'رابع': 'الرابع', 'خامس': 'الخامس', 'سادس': 'السادس' };
@@ -350,6 +351,19 @@ async function runQueue() {
   if (q.length) chrome.alarms.create('sanadq', { delayInMinutes: 0.5 });
 }
 
+// بطاقة «المدرسة الآن»: تجلب الأرقام المجمعة من سند، ترسمها صورة، وترفعها ليرسلها سند عند الطلب
+async function syncCard() {
+  const { pin, device } = await chrome.storage.local.get(['pin', 'device']);
+  if (!pin && !device) return;
+  const d = await post('/api/sync', pin, { kind: 'card_data' });
+  const c = new OffscreenCanvas(1080, 1080);
+  drawCard(c.getContext('2d'), d);
+  const blob = await c.convertToBlob({ type: 'image/jpeg', quality: 0.86 });
+  const u = new Uint8Array(await blob.arrayBuffer());
+  let bin = ''; for (let i = 0; i < u.length; i += 8192) bin += String.fromCharCode.apply(null, u.subarray(i, i + 8192));
+  await post('/api/sync', pin, { kind: 'card', jpg: btoa(bin) });
+}
+
 function save(lines, manual) {
   const t = riyadh().toISOString().slice(0, 16).replace('T', ' ');
   // تنبيه على أيقونة الأداة إذا انتهت جلسة أحد الموقعين أو أُلغي الربط
@@ -358,18 +372,20 @@ function save(lines, manual) {
   return chrome.storage.local.set({ last: { at: t, lines, manual: !!manual } });
 }
 
-chrome.runtime.onInstalled.addListener(() => chrome.alarms.create('sanad', { periodInMinutes: 30 }));
-chrome.runtime.onStartup.addListener(() => chrome.alarms.create('sanad', { periodInMinutes: 30 }));
+const setAlarms = () => { chrome.alarms.create('sanad', { periodInMinutes: 30 }); chrome.alarms.create('sanadcard', { periodInMinutes: 5 }); };
+chrome.runtime.onInstalled.addListener(setAlarms);
+chrome.runtime.onStartup.addListener(setAlarms);
 chrome.alarms.onAlarm.addListener(async a => {
   if (a.name === 'sanadq') { await runQueue(); return; }
-  if (a.name !== 'sanad') return;
+  if (a.name !== 'sanad' && a.name !== 'sanadcard') return;
   const { auto } = await chrome.storage.local.get('auto');
   if (auto === false) return;
   const n = riyadh(), day = n.getUTCDay(), h = n.getUTCHours();
+  if (a.name === 'sanadcard') { if (day <= 4 && h >= 6 && h < 14) { try { await syncCard(); } catch (e) {} } return; }
   if (day > 4 || h < 7 || h >= 13) return; // الأحد–الخميس، 7 ص – 1 م بتوقيت الرياض
   syncAll(false);
 });
-chrome.runtime.onMessage.addListener((m, s, reply) => { if (m === 'sync') { syncAll(true).then(() => reply(true)); return true; } });
+chrome.runtime.onMessage.addListener((m, s, reply) => { if (m === 'sync') { syncAll(true).then(() => syncCard().catch(() => {})).then(() => reply(true)); return true; } });
 chrome.runtime.onMessage.addListener((m, s, reply) => {
   if (!m || m.type !== 'nizam') return;
   (async () => {
