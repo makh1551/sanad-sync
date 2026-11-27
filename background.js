@@ -45,8 +45,11 @@ async function grab(url) {
 }
 
 async function post(path, pin, body) {
-  const r = await fetch(BASE + path, { method: 'POST', headers: { 'content-type': 'application/json', 'x-pin': pin }, body: JSON.stringify(body) });
-  if (r.status === 401) throw new Error('رمز الدخول غير صحيح');
+  const { device } = await chrome.storage.local.get('device');
+  const headers = { 'content-type': 'application/json' };
+  if (device) headers['x-device'] = device; else headers['x-pin'] = pin || '';
+  const r = await fetch(BASE + path, { method: 'POST', headers, body: JSON.stringify(body) });
+  if (r.status === 401) throw new Error(device ? 'أُلغي ربط هذه الأداة. اربطها من لوحة إدارة سند' : 'رمز الدخول غير صحيح');
   if (!r.ok) throw new Error('تعذّر الإرسال إلى سند (' + r.status + ')');
   return r.json();
 }
@@ -139,8 +142,8 @@ async function syncMadrasati(pin, kind) {
 }
 
 async function syncAll(manual) {
-  const { pin } = await chrome.storage.local.get('pin');
-  if (!pin) { await save(['أدخل رمز الدخول أولاً.']); return; }
+  const { pin, device } = await chrome.storage.local.get(['pin', 'device']);
+  if (!pin && !device) { await save(['الأداة غير مرتبطة. اربطها من لوحة إدارة سند.'], manual); return; }
   const lock = await chrome.storage.local.get('busy');
   if (lock.busy && Date.now() - lock.busy < 420000) return;
   await chrome.storage.local.set({ busy: Date.now() });
@@ -163,6 +166,9 @@ async function syncAll(manual) {
 }
 function save(lines, manual) {
   const t = riyadh().toISOString().slice(0, 16).replace('T', ' ');
+  // تنبيه على أيقونة الأداة إذا انتهت جلسة أحد الموقعين أو أُلغي الربط
+  const bad = lines.some(l => /سجّل الدخول|مسجّل الدخول|لم تظهر لوحة|غير مرتبطة|أُلغي ربط/.test(l));
+  try { chrome.action.setBadgeBackgroundColor({ color: '#d9534f' }); chrome.action.setBadgeText({ text: bad ? '!' : '' }); } catch (e) {}
   return chrome.storage.local.set({ last: { at: t, lines, manual: !!manual } });
 }
 
@@ -181,8 +187,8 @@ chrome.runtime.onMessage.addListener((m, s, reply) => {
   if (!m || m.type !== 'nizam') return;
   (async () => {
     try {
-      const { pin } = await chrome.storage.local.get('pin');
-      if (!pin) return reply({ text: 'أدخل رمز الدخول في إضافة مزامنة سند أولاً' });
+      const { pin, device } = await chrome.storage.local.get(['pin', 'device']);
+      if (!pin && !device) return reply({ text: 'اربط الأداة من لوحة إدارة سند أولاً' });
       const p = m.payload || {};
       if (m.kind === 'weekly_plan' && !(p.classes || []).length) return reply({ text: 'لم أجد خطة في الصفحة' });
       if (m.kind === 'logins' && !(p.rows || []).length) return reply({ text: 'لم أجد سجل دخول في الصفحة' });

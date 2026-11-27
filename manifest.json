@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "مزامنة سند",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "تفتح التحضير الذكي ومنصة مدرستي في الخلفية وتجلب الغياب والدخول والخطة الأسبوعية إلى سند. إعداد: الفريق التقني بالمدرسة",
   "permissions": [
     "storage",
@@ -28,6 +28,15 @@
       ],
       "js": [
         "nizam.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://taqweem.wasl.uk/*"
+      ],
+      "js": [
+        "pair.js"
       ],
       "run_at": "document_idle"
     }
