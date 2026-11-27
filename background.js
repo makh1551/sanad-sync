@@ -36,6 +36,7 @@ function waitLoad(tabId) {
 
 async function grab(url) {
   const tab = await chrome.tabs.create({ url, active: false });
+  try { await chrome.storage.local.set({ jobTab: tab.id }); } catch (e) {}
   try {
     await waitLoad(tab.id);
     const [r] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: scrape });
@@ -150,6 +151,7 @@ async function syncTeachers(pin) {
 
 async function runIn(url, func) {
   const tab = await chrome.tabs.create({ url, active: false });
+  try { await chrome.storage.local.set({ jobTab: tab.id }); } catch (e) {}
   try { await waitLoad(tab.id); const [r] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func }); return (r && r.result) || {}; }
   finally { try { await chrome.tabs.remove(tab.id); } catch (e) {} }
 }
@@ -312,13 +314,18 @@ async function syncAll(manual) {
     if (manual || !st.madLogins || Date.now() - st.madLogins > 3 * 3600e3) q.push('logins');
     if (manual || st.madPlan !== today()) q.push('weekly_plan');
     if (manual || st.ttDay !== today()) q.push('tt_img');
-    // قائمة قديمة عالقة لا تمنع البدء: اليدوي يبدأ قائمة جديدة، والتلقائي يكمل العالقة
+    // صور الجداول أولاً لأنها سريعة ولا تفتح تبويبات
+    if (q.includes('tt_img')) { q.splice(q.indexOf('tt_img'), 1); q.unshift('tt_img'); }
     const pend = st.queue || [];
-    const run = manual ? q : (pend.length ? pend : q);
-    if (run.length) {
-      await chrome.storage.local.set(manual || !pend.length ? { queue: run, xOk: true } : { queue: run });
-      chrome.alarms.create('sanadq', { delayInMinutes: 0.5 });
-      out.push('… يتبع: ' + run.length + ' مهمة في الخلفية');
+    if (RUN) out.push('المهام الخلفية السابقة ما زالت تعمل.');
+    else {
+      const run = manual ? q : (pend.length ? pend : q);
+      if (run.length) {
+        const set = { queue: run };
+        if (manual || !pend.length) { set.xOk = true; set.job = null; set.jobs = run.map(k => ({ k, s: 'wait', line: '' })); }
+        await chrome.storage.local.set(set);
+        chrome.alarms.create('sanadq', { delayInMinutes: 0.1, periodInMinutes: 0.5 });
+      }
     }
   } finally {
     await chrome.storage.local.set({ busy: 0 });
@@ -336,35 +343,40 @@ const JOBS = {
 };
 const EXTRA = ['alerts_abs', 'alerts_late', 'duty_shift', 'duty_super', 'tch_full'];
 
-// تنفّذ مهمة واحدة من قائمة الانتظار ثم تجدول التالية
+// تنفّذ مهمة واحدة في كل نبضة. النبضة تتكرر كل نصف دقيقة حتى تفرغ القائمة،
+// فإن أوقف المتصفح الأداة في منتصف مهمة عادت النبضة التالية وأكملت ما بعدها.
+let RUN = false;
 async function runQueue() {
-  const s = await chrome.storage.local.get(['queue', 'pin', 'last', 'xOk']);
-  const q = s.queue || []; if (!q.length) return;
-  const job = q.shift(); await chrome.storage.local.set({ queue: q });
-  let line; try { line = await JOBS[job](s.pin); } catch (e) { line = 'خطأ: ' + (e.message || e); }
-  const ok = /✅/.test(line), set = {};
-  if (ok && job === 'dir') set.dirDay = today();
-  if (ok && job === 'logins') set.madLogins = Date.now();
-  if (ok && job === 'weekly_plan') set.madPlan = today();
-  if (ok && job === 'tt_img') set.ttDay = today();
-  let xOk = s.xOk !== false; if (EXTRA.includes(job) && !ok) xOk = false; set.xOk = xOk;
-  if (job === 'tch_full' && xOk) set.extraDay = today();
-  await chrome.storage.local.set(set);
-  const last = s.last || { lines: [] };
-  const lines = (last.lines || []).filter(l => !/^… يتبع/.test(l)).concat([line]);
-  if (q.length) lines.push('… يتبع: ' + q.length + ' مهمة في الخلفية');
-  await save(lines, last.manual);
-  if (q.length) chrome.alarms.create('sanadq', { delayInMinutes: 0.5 });
-}
-
-// بطاقة «المدرسة الآن»: تجلب الأرقام المجمعة من سند، ترسمها صورة، وترفعها ليرسلها سند عند الطلب
-async function syncCard() {
-  const { pin, device } = await chrome.storage.local.get(['pin', 'device']);
-  if (!pin && !device) return;
-  const d = await post('/api/sync', pin, { kind: 'card_data' });
-  const c = new OffscreenCanvas(1080, 1080);
-  drawCard(c.getContext('2d'), d);
-  await post('/api/sync', pin, { kind: 'card', jpg: await toJpg(c) });
+  if (RUN) return;
+  const s = await chrome.storage.local.get(['queue', 'pin', 'xOk', 'job', 'jobs', 'jobTab']);
+  const jobs = s.jobs || [];
+  const mark = (k, st, line) => { const j = jobs.find(x => x.k === k && (x.s === 'wait' || x.s === 'run')); if (j) { j.s = st; if (line != null) j.line = line; } };
+  if (s.job) {
+    mark(s.job.k, 'err', 'انقطعت قبل أن تكتمل. اضغط «مزامنة الآن» لإعادتها.');
+    if (s.jobTab) { try { await chrome.tabs.remove(s.jobTab); } catch (e) {} }
+    await chrome.storage.local.set({ job: null, jobTab: 0, jobs });
+  }
+  const q = s.queue || [];
+  if (!q.length) { chrome.alarms.clear('sanadq'); return; }
+  RUN = true;
+  try {
+    const job = q.shift(); mark(job, 'run');
+    await chrome.storage.local.set({ queue: q, job: { k: job, at: Date.now() }, jobs });
+    let line; try { line = await JOBS[job](s.pin); } catch (e) { line = 'خطأ: ' + (e.message || e); }
+    const ok = /✅/.test(line), set = {};
+    if (ok && job === 'dir') set.dirDay = today();
+    if (ok && job === 'logins') set.madLogins = Date.now();
+    if (ok && job === 'weekly_plan') set.madPlan = today();
+    if (ok && job === 'tt_img') set.ttDay = today();
+    let xOk = s.xOk !== false; if (EXTRA.includes(job) && !ok) xOk = false; set.xOk = xOk;
+    if (job === 'tch_full' && xOk) set.extraDay = today();
+    mark(job, ok ? 'ok' : 'err', line);
+    set.job = null; set.jobTab = 0; set.jobs = jobs;
+    await chrome.storage.local.set(set);
+    const bad = jobs.some(x => x.s === 'err' && /سجّل الدخول|مسجّل الدخول|لم تظهر/.test(x.line || ''));
+    if (bad) { try { chrome.action.setBadgeBackgroundColor({ color: '#d9534f' }); chrome.action.setBadgeText({ text: '!' }); } catch (e) {} }
+    if (!q.length) chrome.alarms.clear('sanadq');
+  } finally { RUN = false; }
 }
 
 async function toJpg(c) {
@@ -412,7 +424,7 @@ async function selfCheck() {
   } catch (e) {}
 }
 
-const setAlarms = () => { chrome.alarms.create('sanad', { periodInMinutes: 30 }); chrome.alarms.create('sanadcard', { periodInMinutes: 5 }); };
+const setAlarms = () => { chrome.alarms.create('sanad', { periodInMinutes: 30 }); chrome.alarms.create('sanadcard', { periodInMinutes: 5 }); chrome.storage.local.get(['queue', 'job'], s => { if ((s.queue || []).length || s.job) chrome.alarms.create('sanadq', { delayInMinutes: 0.1, periodInMinutes: 0.5 }); }); };
 chrome.runtime.onInstalled.addListener(setAlarms);
 chrome.runtime.onStartup.addListener(setAlarms);
 chrome.alarms.onAlarm.addListener(async a => {

@@ -1,17 +1,30 @@
 <!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><style>
-body{width:320px;margin:0;padding:14px;font:15px/1.6 "Sakkal Majalla","Tajawal",Tahoma,sans-serif;color:#231F20;background:#F3F1EF}
-h1{margin:0 0 2px;font-size:19px;color:#15445A}small{color:#6D6E71}
-label{display:block;font-weight:700;margin:10px 0 4px}input[type=password]{width:100%;box-sizing:border-box;padding:9px;border:1px solid #C2C1C1;border-radius:8px;font:inherit}
-button{width:100%;margin-top:10px;padding:10px;border:0;border-radius:8px;background:#15445A;color:#fff;font:inherit;font-weight:700;cursor:pointer}button:disabled{opacity:.6}
-.row{display:flex;align-items:center;gap:8px;margin-top:10px}.row input{width:18px;height:18px}
-#log{margin-top:12px;background:#fff;border:1px solid #e2dfdb;border-radius:8px;padding:9px;white-space:pre-line;font-size:14px;min-height:40px}
-footer{margin-top:10px;font-size:12px;color:#6D6E71;text-align:center}
+*{box-sizing:border-box}
+body{width:370px;margin:0;font:16px/1.6 "Segoe UI",Tahoma,"Sakkal Majalla",sans-serif;color:#231F20;background:#F3F1EF}
+header{background:#15445A;color:#fff;padding:12px 14px 10px}
+header h1{margin:0;font-size:20px;color:#C1B48A}header p{margin:2px 0 0;font-size:13px;opacity:.9}
+.grad{height:5px;background:linear-gradient(90deg,#07A869,#0DA9A6,#3D7EB9)}
+main{padding:12px 14px}
+.card{background:#fff;border:1px solid #e2dfdb;border-radius:10px;padding:10px 12px;margin-bottom:10px}
+.chip{display:inline-block;padding:1px 10px;border-radius:99px;font-size:13px;font-weight:700;color:#fff}
+.g{background:#07A869}.r{background:#d9534f}.o{background:#b45309}
+.row{display:flex;align-items:center;gap:8px;font-size:14px}.row input{width:18px;height:18px}
+button{width:100%;padding:11px;border:0;border-radius:10px;background:#15445A;color:#fff;font:inherit;font-weight:700;cursor:pointer;margin-bottom:10px}button:disabled{opacity:.6}
+h2{margin:0 0 6px;font-size:15px;color:#15445A;display:flex;justify-content:space-between}
+h2 small{font-weight:400;color:#6D6E71}
+.it{display:flex;gap:8px;padding:5px 0;border-top:1px solid #f0eeea;font-size:14px}.it:first-of-type{border-top:0}
+.ic{width:20px;text-align:center;flex:none}.tx b{display:block}.tx span{color:#6D6E71;font-size:13px}
+.bar{height:6px;background:#e9e6e1;border-radius:9px;overflow:hidden;margin:2px 0 8px}.bar i{display:block;height:100%;background:#07A869;width:0}
+#link a{color:#3D7EB9}
+footer{padding:0 14px 12px;font-size:12px;color:#6D6E71;text-align:center}
 </style></head><body>
-<h1>مزامنة سند 🤝</h1><small>تفتح التحضير الذكي ومدرستي وتجلب بياناتهما لسند</small>
-<div id="link" style="margin-top:10px;background:#fff;border:1px solid #e2dfdb;border-radius:8px;padding:9px"></div>
-<div class="row"><input id="auto" type="checkbox"><span>مزامنة تلقائية كل نصف ساعة (الأحد–الخميس، 7 ص – 1 م)</span></div>
+<header><h1>مزامنة سند</h1><p>تجلب بيانات التحضير الذكي ومدرستي إلى سند</p></header><div class="grad"></div>
+<main>
+<div class="card"><div id="link"></div>
+<div class="row" style="margin-top:8px"><input id="auto" type="checkbox"><span>مزامنة تلقائية كل نصف ساعة (الأحد–الخميس، 7 ص – 1 م)</span></div></div>
 <button id="go">مزامنة الآن</button>
-<div id="log">لم تجرِ مزامنة بعد.</div>
-<div id="ver" style="margin-top:8px;font-size:12px;color:#6D6E71"></div>
-<footer>يجب أن تكون مسجّلاً الدخول في التحضير الذكي ومدرستي في هذا المتصفح، وأن تكون إضافة نُظُم مثبتة فيه.<br>إعداد: الفريق التقني بالمدرسة</footer>
+<div class="card"><h2>البيانات السريعة <small id="at"></small></h2><div id="log" class="list"></div></div>
+<div class="card" id="bgc" hidden><h2>المهام الخلفية <small id="prog"></small></h2><div class="bar"><i id="bar"></i></div><div id="jobs"></div></div>
+</main>
+<footer><div id="ver"></div>يجب أن تكون مسجّلاً الدخول في التحضير الذكي ومدرستي في هذا المتصفح.<br>إعداد: الفريق التقني بالمدرسة</footer>
 <script src="popup.js"></script></body></html>
