@@ -12,3 +12,13 @@ $('go').addEventListener('click', () => {
   chrome.runtime.sendMessage('sync', () => { chrome.storage.local.get('last', d => { show(d.last); $('go').disabled = false; }); });
 });
 chrome.storage.onChanged.addListener(c => { if (c.last) show(c.last.newValue); if (c.device) chrome.storage.local.get(['pin', 'device', 'deviceName'], link); });
+
+// رقم الإصدار، وتنبيه إن وُجد إصدار أحدث في GitHub
+const cmp = (a, b) => { const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0); } return 0; };
+function ver(nv) {
+  const v = chrome.runtime.getManifest().version;
+  $('ver').textContent = 'الإصدار ' + v + (nv && cmp(nv, v) > 0 ? ' — يوجد إصدار ' + nv + '. شغّل ملف update.bat في مجلد الأداة.' : '');
+  $('ver').style.color = nv && cmp(nv, v) > 0 ? '#b45309' : '#6D6E71';
+}
+chrome.storage.local.get('newVer', d => ver(d.newVer));
+chrome.runtime.sendMessage('check', () => chrome.storage.local.get('newVer', d => ver(d.newVer)));

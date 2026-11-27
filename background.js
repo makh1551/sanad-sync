@@ -398,12 +398,27 @@ function save(lines, manual) {
   return chrome.storage.local.set({ last: { at: t, lines, manual: !!manual } });
 }
 
+// بعد تشغيل update.bat تتغير الملفات على القرص: إن اختلف رقم الإصدار أعادت الأداة تحميل نفسها
+async function selfCheck() {
+  try {
+    const disk = await (await fetch(chrome.runtime.getURL('manifest.json'), { cache: 'no-store' })).json();
+    if (disk.version && disk.version !== chrome.runtime.getManifest().version) { chrome.runtime.reload(); return; }
+  } catch (e) {}
+  try {
+    const s = await chrome.storage.local.get('verAt');
+    if (s.verAt && Date.now() - s.verAt < 3 * 3600e3) return;
+    const r = await fetch('https://raw.githubusercontent.com/makh1551/sanad-sync/main/manifest.json', { cache: 'no-store' });
+    if (r.ok) { const m = await r.json(); await chrome.storage.local.set({ verAt: Date.now(), newVer: m.version || '' }); }
+  } catch (e) {}
+}
+
 const setAlarms = () => { chrome.alarms.create('sanad', { periodInMinutes: 30 }); chrome.alarms.create('sanadcard', { periodInMinutes: 5 }); };
 chrome.runtime.onInstalled.addListener(setAlarms);
 chrome.runtime.onStartup.addListener(setAlarms);
 chrome.alarms.onAlarm.addListener(async a => {
   if (a.name === 'sanadq') { await runQueue(); return; }
   if (a.name !== 'sanad' && a.name !== 'sanadcard') return;
+  await selfCheck();
   const { auto } = await chrome.storage.local.get('auto');
   if (auto === false) return;
   const n = riyadh(), day = n.getUTCDay(), h = n.getUTCHours();
@@ -411,6 +426,7 @@ chrome.alarms.onAlarm.addListener(async a => {
   if (day > 4 || h < 7 || h >= 13) return; // الأحد–الخميس، 7 ص – 1 م بتوقيت الرياض
   syncAll(false);
 });
+chrome.runtime.onMessage.addListener((m, s, reply) => { if (m === 'check') { selfCheck().then(() => reply(true)); return true; } });
 chrome.runtime.onMessage.addListener((m, s, reply) => { if (m === 'sync') { syncAll(true).then(() => syncCard().catch(() => {})).then(() => reply(true)); return true; } });
 chrome.runtime.onMessage.addListener((m, s, reply) => {
   if (!m || m.type !== 'nizam') return;
