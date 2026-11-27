@@ -109,3 +109,19 @@ chrome.alarms.onAlarm.addListener(async a => {
   syncAll(false);
 });
 chrome.runtime.onMessage.addListener((m, s, reply) => { if (m === 'sync') { syncAll(true).then(() => reply(true)); return true; } });
+chrome.runtime.onMessage.addListener((m, s, reply) => {
+  if (!m || m.type !== 'nizam') return;
+  (async () => {
+    try {
+      const { pin } = await chrome.storage.local.get('pin');
+      if (!pin) return reply({ text: 'أدخل رمز الدخول في إضافة مزامنة سند أولاً' });
+      const p = m.payload || {};
+      if (m.kind === 'weekly_plan' && !(p.classes || []).length) return reply({ text: 'لم أجد خطة في الصفحة' });
+      if (m.kind === 'logins' && !(p.rows || []).length) return reply({ text: 'لم أجد سجل دخول في الصفحة' });
+      const r = await post('/api/sync', pin, Object.assign({ kind: m.kind, date: today() }, p));
+      reply({ text: 'وصل سند ✅ (' + (r.count || 0) + (m.kind === 'weekly_plan' ? ' فصلاً' : ' مستخدماً') + ')' });
+    } catch (e) { reply({ text: 'خطأ: ' + (e.message || e) }); }
+  })();
+  return true;
+});
+
