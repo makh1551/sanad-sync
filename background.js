@@ -297,37 +297,59 @@ async function syncAll(manual) {
   const { pin, device } = await chrome.storage.local.get(['pin', 'device']);
   if (!pin && !device) { await save(['الأداة غير مرتبطة. اربطها من لوحة إدارة سند.'], manual); return; }
   const lock = await chrome.storage.local.get('busy');
-  if (lock.busy && Date.now() - lock.busy < 900000) return;
+  if (lock.busy && Date.now() - lock.busy < 240000) return;
   await chrome.storage.local.set({ busy: Date.now() });
   const out = [];
   try {
+    // المهام السريعة أولاً: حضور الطلاب والمعلمين والسلوك
     for (const f of [syncStudents, syncTeachers, syncBehavior]) { try { out.push(await f(pin)); } catch (e) { out.push('خطأ: ' + (e.message || e)); } }
-    // دليل الطلاب وجوالات أولياء الأمور: مرة يومياً، ويدوياً دائماً
-    const dd = await chrome.storage.local.get('dirDay');
-    if (manual || dd.dirDay !== today()) { try { const line = await syncDirectory(pin); out.push(line); if (/✅/.test(line)) await chrome.storage.local.set({ dirDay: today() }); } catch (e) { out.push('خطأ: ' + (e.message || e)); } }
-    // الإنذارات والمناوبة والإشراف والتقرير التراكمي: مرة يومياً، ويدوياً دائماً
-    const xd = await chrome.storage.local.get('extraDay');
-    if (manual || xd.extraDay !== today()) {
-      let ok = true;
-      for (const f of [p => syncAlerts(p, 'absence'), p => syncAlerts(p, 'late'), p => syncDuty(p, 'shift'), p => syncDuty(p, 'super'), syncTeachersFull]) {
-        try { const line = await f(pin); out.push(line); if (!/✅/.test(line)) ok = false; } catch (e) { ok = false; out.push('خطأ: ' + (e.message || e)); }
-      }
-      if (ok) await chrome.storage.local.set({ extraDay: today() });
-    }
-    // مدرستي: يدوياً دائماً، وتلقائياً مرة كل 3 ساعات للدخول ومرة يومياً للخطة
-    const st = await chrome.storage.local.get(['madLogins', 'madPlan']);
-    const jobs = [];
-    if (manual || !st.madLogins || Date.now() - st.madLogins > 3 * 3600e3) jobs.push('logins');
-    if (manual || st.madPlan !== today()) jobs.push('weekly_plan');
-    for (const k of jobs) {
-      try { const line = await syncMadrasati(pin, k); out.push(line); if (/✅/.test(line)) await chrome.storage.local.set(k === 'logins' ? { madLogins: Date.now() } : { madPlan: today() }); }
-      catch (e) { out.push('خطأ: ' + (e.message || e)); }
+    // المهام الطويلة تُنفَّذ واحدة واحدة في الخلفية، كل مهمة في تشغيل مستقل حتى لا يوقفها المتصفح
+    const st = await chrome.storage.local.get(['dirDay', 'extraDay', 'madLogins', 'madPlan', 'queue']);
+    const q = [];
+    if (manual || st.dirDay !== today()) q.push('dir');
+    if (manual || st.extraDay !== today()) q.push('alerts_abs', 'alerts_late', 'duty_shift', 'duty_super', 'tch_full');
+    if (manual || !st.madLogins || Date.now() - st.madLogins > 3 * 3600e3) q.push('logins');
+    if (manual || st.madPlan !== today()) q.push('weekly_plan');
+    if (q.length && !(st.queue || []).length) {
+      await chrome.storage.local.set({ queue: q, xOk: true });
+      chrome.alarms.create('sanadq', { delayInMinutes: 0.5 });
+      out.push('… يتبع: ' + q.length + ' مهمة في الخلفية');
     }
   } finally {
     await chrome.storage.local.set({ busy: 0 });
     await save(out, manual);
   }
 }
+
+const JOBS = {
+  dir: syncDirectory,
+  alerts_abs: p => syncAlerts(p, 'absence'), alerts_late: p => syncAlerts(p, 'late'),
+  duty_shift: p => syncDuty(p, 'shift'), duty_super: p => syncDuty(p, 'super'),
+  tch_full: syncTeachersFull,
+  logins: p => syncMadrasati(p, 'logins'), weekly_plan: p => syncMadrasati(p, 'weekly_plan')
+};
+const EXTRA = ['alerts_abs', 'alerts_late', 'duty_shift', 'duty_super', 'tch_full'];
+
+// تنفّذ مهمة واحدة من قائمة الانتظار ثم تجدول التالية
+async function runQueue() {
+  const s = await chrome.storage.local.get(['queue', 'pin', 'last', 'xOk']);
+  const q = s.queue || []; if (!q.length) return;
+  const job = q.shift(); await chrome.storage.local.set({ queue: q });
+  let line; try { line = await JOBS[job](s.pin); } catch (e) { line = 'خطأ: ' + (e.message || e); }
+  const ok = /✅/.test(line), set = {};
+  if (ok && job === 'dir') set.dirDay = today();
+  if (ok && job === 'logins') set.madLogins = Date.now();
+  if (ok && job === 'weekly_plan') set.madPlan = today();
+  let xOk = s.xOk !== false; if (EXTRA.includes(job) && !ok) xOk = false; set.xOk = xOk;
+  if (job === 'tch_full' && xOk) set.extraDay = today();
+  await chrome.storage.local.set(set);
+  const last = s.last || { lines: [] };
+  const lines = (last.lines || []).filter(l => !/^… يتبع/.test(l)).concat([line]);
+  if (q.length) lines.push('… يتبع: ' + q.length + ' مهمة في الخلفية');
+  await save(lines, last.manual);
+  if (q.length) chrome.alarms.create('sanadq', { delayInMinutes: 0.5 });
+}
+
 function save(lines, manual) {
   const t = riyadh().toISOString().slice(0, 16).replace('T', ' ');
   // تنبيه على أيقونة الأداة إذا انتهت جلسة أحد الموقعين أو أُلغي الربط
@@ -339,6 +361,7 @@ function save(lines, manual) {
 chrome.runtime.onInstalled.addListener(() => chrome.alarms.create('sanad', { periodInMinutes: 30 }));
 chrome.runtime.onStartup.addListener(() => chrome.alarms.create('sanad', { periodInMinutes: 30 }));
 chrome.alarms.onAlarm.addListener(async a => {
+  if (a.name === 'sanadq') { await runQueue(); return; }
   if (a.name !== 'sanad') return;
   const { auto } = await chrome.storage.local.get('auto');
   if (auto === false) return;
