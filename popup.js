@@ -1,5 +1,5 @@
 const $ = id => document.getElementById(id);
-const NAMES = { dir: 'دليل الطلاب', alerts_abs: 'الغياب المتكرر', alerts_late: 'التأخر المتكرر', duty_shift: 'جدول المناوبة', duty_super: 'جدول الإشراف', tch_full: 'تقرير المعلمين التراكمي', logins: 'دخول مدرستي', weekly_plan: 'الخطة الأسبوعية', tt_img: 'صور الجداول' };
+const NAMES = { dir: 'دليل الطلاب', alerts_abs: 'الغياب المتكرر', alerts_late: 'التأخر المتكرر', duty_shift: 'جدول المناوبة', duty_super: 'جدول الإشراف', tch_full: 'تقرير المعلمين التراكمي', logins: 'دخول مدرستي', logins_close: 'إقفال دخول الأسبوع', weekly_plan: 'الخطة الأسبوعية', tt_img: 'صور الجداول' };
 const ICON = { wait: '⏳', run: '🔄', ok: '✅', err: '⚠️' }, STATE = { wait: 'في الانتظار', run: 'تعمل الآن…', ok: '', err: '' };
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
 const item = (ic, title, sub, extra) => '<div class="it"><div class="ic">' + ic + '</div><div class="tx"><b>' + esc(title) + '</b>' + (sub ? '<span>' + esc(sub) + '</span>' : '') + '</div>' + (extra || '') + '</div>';
