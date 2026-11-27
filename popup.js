@@ -5,7 +5,7 @@ $('pin').addEventListener('change', () => chrome.storage.local.set({ pin: $('pin
 $('auto').addEventListener('change', () => chrome.storage.local.set({ auto: $('auto').checked }));
 $('go').addEventListener('click', async () => {
   await chrome.storage.local.set({ pin: $('pin').value.trim() });
-  $('go').disabled = true; $('log').textContent = 'جارٍ فتح التحضير الذكي وجلب البيانات… قد يستغرق دقيقة.';
+  $('go').disabled = true; $('log').textContent = 'جارٍ فتح التحضير الذكي وجلب البيانات… قد يستغرق بضع دقائق، وستُفتح تبويبات وتُغلق تلقائياً.';
   chrome.runtime.sendMessage('sync', () => { chrome.storage.local.get('last', d => { show(d.last); $('go').disabled = false; }); });
 });
 chrome.storage.onChanged.addListener(c => { if (c.last) show(c.last.newValue); });

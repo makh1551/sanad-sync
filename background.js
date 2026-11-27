@@ -79,15 +79,83 @@ async function syncTeachers(pin) {
   return 'المعلمون: ' + (res.absent != null ? res.absent + ' حالة غياب أو تأخر' : d.rows.length + ' صفاً') + ' ✅';
 }
 
+// تُنفَّذ داخل صفحة مدرستي: تضغط أزرار لوحة «نُظُم» وتنتظر التقرير ثم تقرؤه
+async function nizamRun(kind) {
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const btn = re => [...document.querySelectorAll('button')].find(b => re.test(b.innerText.replace(/\s+/g, ' ').trim()) && b.getClientRects().length);
+  const waitFor = async (fn, ms) => { const t = Date.now(); while (Date.now() - t < ms) { const v = fn(); if (v) return v; await sleep(700); } return null; };
+  if (/\/auth/i.test(location.pathname)) return { error: 'سجّل الدخول في منصة مدرستي في هذا المتصفح' };
+  const api = window.__sanadNizam; if (!api) return { error: 'أعد تحميل الأداة' };
+  const first = await waitFor(() => btn(kind === 'logins' ? /^متابعة الدخول اليومي$/ : /^الخطة الاسبوعية$/), 30000);
+  if (!first) return { error: 'لم تظهر لوحة نُظُم في الصفحة' };
+  first.click();
+  const root = () => document.getElementById('nizam-report');
+  if (kind === 'logins') {
+    await waitFor(() => root() || btn(/متابعة بدون فصول/), 15000);
+    const skip = btn(/متابعة بدون فصول/); if (skip) skip.click();
+    const pull = await waitFor(() => btn(/سحب السجل من المنصة الآن/), 20000);
+    if (!pull) return { error: 'لم يفتح تقرير الدخول اليومي' };
+    pull.click(); await sleep(5000);
+    let last = -1, stable = 0;
+    for (let i = 0; i < 80 && stable < 4; i++) { const n = api.logins(root()).rows.length; if (n > 1 && n === last) stable++; else stable = 0; last = n; await sleep(1000); }
+    return { payload: api.logins(root()) };
+  }
+  const go = await waitFor(() => btn(/^استخراج الخطة$/), 12000);
+  if (!go) return { error: 'لم تفتح نافذة الخطة الأسبوعية' };
+  // اختيار أسبوع اليوم، أو الأسبوع القادم في نهاية الأسبوع
+  const today = new Date(Date.now() + 3 * 3600e3).toISOString().slice(0, 10);
+  const sel = [...document.querySelectorAll('select')].find(s => [...s.options].some(o => /\d{4}-\d{2}-\d{2}/.test(o.text)));
+  if (sel) {
+    const opt = [...sel.options].find(o => { const m = o.text.match(/(\d{4}-\d{2}-\d{2})\D+(\d{4}-\d{2}-\d{2})/); return m && m[2] >= today; });
+    if (opt && sel.value !== opt.value) { sel.value = opt.value; sel.dispatchEvent(new Event('change', { bubbles: true })); await sleep(1200); }
+  }
+  (btn(/^استخراج الخطة$/) || go).click();
+  await waitFor(() => root() && root().querySelector('.nzp-class-head'), 150000);
+  if (!root()) return { error: 'لم تُستخرج الخطة' };
+  let last = -1, stable = 0;
+  for (let i = 0; i < 40 && stable < 3; i++) { const n = root().querySelectorAll('.nzp-class-head').length; if (n > 0 && n === last) stable++; else stable = 0; last = n; await sleep(1000); }
+  return { payload: api.plan(root()) };
+}
+
+async function syncMadrasati(pin, kind) {
+  const label = kind === 'logins' ? 'دخول مدرستي' : 'الخطة الأسبوعية';
+  const { madrasatiUrl } = await chrome.storage.local.get('madrasatiUrl');
+  if (!madrasatiUrl) return label + ': افتح صفحة المدرسة في منصة مدرستي مرة واحدة لتتعرف عليها الأداة.';
+  const tab = await chrome.tabs.create({ url: madrasatiUrl, active: false });
+  try {
+    await waitLoad(tab.id);
+    await new Promise(r => setTimeout(r, 3000));
+    const [r] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: nizamRun, args: [kind] });
+    const res = (r && r.result) || { error: 'لا رد من الصفحة' };
+    if (res.error) return label + ': ' + res.error;
+    const p = res.payload || {};
+    if (kind === 'logins' && !(p.rows || []).length) return label + ': السجل فارغ.';
+    if (kind === 'weekly_plan' && !(p.classes || []).length) return label + ': لم أجد خطة.';
+    const out = await post('/api/sync', pin, Object.assign({ kind, date: today() }, p));
+    return label + ': ' + (out.count || 0) + (kind === 'logins' ? ' مستخدماً' : ' فصلاً') + ' ✅';
+  } finally {
+    try { await chrome.tabs.remove(tab.id); } catch (e) {}
+  }
+}
+
 async function syncAll(manual) {
   const { pin } = await chrome.storage.local.get('pin');
   if (!pin) { await save(['أدخل رمز الدخول أولاً.']); return; }
   const lock = await chrome.storage.local.get('busy');
-  if (lock.busy && Date.now() - lock.busy < 180000) return;
+  if (lock.busy && Date.now() - lock.busy < 420000) return;
   await chrome.storage.local.set({ busy: Date.now() });
   const out = [];
   try {
     for (const f of [syncStudents, syncTeachers]) { try { out.push(await f(pin)); } catch (e) { out.push('خطأ: ' + (e.message || e)); } }
+    // مدرستي: يدوياً دائماً، وتلقائياً مرة كل 3 ساعات للدخول ومرة يومياً للخطة
+    const st = await chrome.storage.local.get(['madLogins', 'madPlan']);
+    const jobs = [];
+    if (manual || !st.madLogins || Date.now() - st.madLogins > 3 * 3600e3) jobs.push('logins');
+    if (manual || st.madPlan !== today()) jobs.push('weekly_plan');
+    for (const k of jobs) {
+      try { const line = await syncMadrasati(pin, k); out.push(line); if (/✅/.test(line)) await chrome.storage.local.set(k === 'logins' ? { madLogins: Date.now() } : { madPlan: today() }); }
+      catch (e) { out.push('خطأ: ' + (e.message || e)); }
+    }
   } finally {
     await chrome.storage.local.set({ busy: 0 });
     await save(out, manual);

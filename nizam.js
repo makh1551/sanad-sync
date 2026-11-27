@@ -32,6 +32,9 @@
     const rows = [...t.querySelectorAll('tbody tr')].map(tr => { const c = tr.children; return { n: txt(c[ni]), c: txt(c[ci]), role: txt(c[ri]), status: txt(c[si]) }; }).filter(r => r.n && r.status);
     return { school: school(), rows }; // رقم الهوية لا يُرسل
   }
+  window.__sanadNizam = { plan, logins, kindOf };
+  // تتعرف الأداة على صفحة المدرسة عند فتحها أول مرة
+  if (/\/SchoolManagment\/Actions\/Index\//i.test(location.pathname)) { try { chrome.storage.local.set({ madrasatiUrl: location.href, madrasatiName: school() }); } catch (e) {} }
   let btn = null;
   function ensure() {
     const root = document.getElementById('nizam-report');

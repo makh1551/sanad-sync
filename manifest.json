@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "مزامنة سند",
-  "version": "1.1.0",
-  "description": "تجلب غياب الطلاب والمعلمين من التحضير الذكي، وتقارير نُظُم من مدرستي، إلى سند. إعداد: الفريق التقني بالمدرسة",
+  "version": "1.2.0",
+  "description": "تفتح التحضير الذكي ومنصة مدرستي في الخلفية وتجلب الغياب والدخول والخطة الأسبوعية إلى سند. إعداد: الفريق التقني بالمدرسة",
   "permissions": [
     "storage",
     "alarms",
@@ -11,6 +11,7 @@
   ],
   "host_permissions": [
     "https://s.tahdir.net/*",
+    "https://schools.madrasati.sa/*",
     "https://taqweem.wasl.uk/*"
   ],
   "background": {
