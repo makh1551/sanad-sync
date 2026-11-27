@@ -312,10 +312,13 @@ async function syncAll(manual) {
     if (manual || !st.madLogins || Date.now() - st.madLogins > 3 * 3600e3) q.push('logins');
     if (manual || st.madPlan !== today()) q.push('weekly_plan');
     if (manual || st.ttDay !== today()) q.push('tt_img');
-    if (q.length && !(st.queue || []).length) {
-      await chrome.storage.local.set({ queue: q, xOk: true });
+    // قائمة قديمة عالقة لا تمنع البدء: اليدوي يبدأ قائمة جديدة، والتلقائي يكمل العالقة
+    const pend = st.queue || [];
+    const run = manual ? q : (pend.length ? pend : q);
+    if (run.length) {
+      await chrome.storage.local.set(manual || !pend.length ? { queue: run, xOk: true } : { queue: run });
       chrome.alarms.create('sanadq', { delayInMinutes: 0.5 });
-      out.push('… يتبع: ' + q.length + ' مهمة في الخلفية');
+      out.push('… يتبع: ' + run.length + ' مهمة في الخلفية');
     }
   } finally {
     await chrome.storage.local.set({ busy: 0 });
