@@ -111,6 +111,34 @@ async function syncDirectory(pin) {
   return 'دليل الطلاب: ' + (res.count || d.rows.length) + ' طالباً ✅';
 }
 
+// تُنفَّذ داخل صفحة جدول ذي صفحات: تقرأ العناوين وكل الصفوف مع المرور على «الصفحة التالية»
+async function scrapePaged() {
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const rowsOf = () => [...document.querySelectorAll('table tbody tr')];
+  for (let i = 0; i < 30 && !rowsOf().length; i++) await sleep(1000);
+  const headers = [...document.querySelectorAll('table thead th')].map(x => x.innerText.trim());
+  const out = [], seen = new Set();
+  for (let page = 0; page < 20; page++) {
+    const rs = rowsOf(); let added = 0;
+    for (const tr of rs) { const c = [...tr.children].map(td => td.innerText.trim().replace(/\s+/g, ' ').replace(/\d{9,}/g, '')); const k = c.join('|'); if (seen.has(k)) continue; seen.add(k); added++; out.push(c); }
+    const next = [...document.querySelectorAll('button,a')].find(x => /الصفحة التالية/.test(x.innerText) && !x.disabled && !x.classList.contains('disabled'));
+    if (!next || !added) break;
+    const first = rs[0] ? rs[0].innerText : ''; next.click();
+    for (let i = 0; i < 20; i++) { await sleep(500); const f = rowsOf()[0]; if (f && f.innerText !== first) break; }
+  }
+  return { headers, rows: out };
+}
+
+async function syncBehavior(pin) {
+  const tab = await chrome.tabs.create({ url: 'https://s.tahdir.net/_students/bis', active: false });
+  let d;
+  try { await waitLoad(tab.id); const [r] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: scrapePaged }); d = (r && r.result) || { headers: [], rows: [] }; }
+  finally { try { await chrome.tabs.remove(tab.id); } catch (e) {} }
+  if (!d.headers.length) return 'السلوك: لم تظهر صفحة المخالفات.';
+  const res = await post('/api/sync', pin, { kind: 'behavior', date: today(), headers: d.headers, rows: d.rows.slice(0, 3000) });
+  return 'السلوك: ' + (res.count != null ? res.count : d.rows.length) + ' مخالفة ✅';
+}
+
 async function syncTeachers(pin) {
   const d = await grab('https://s.tahdir.net/_teachers/reports/daily');
   if (!d.rows.length) return 'المعلمون: التقرير فارغ أو لم يظهر.';
@@ -186,7 +214,7 @@ async function syncAll(manual) {
   await chrome.storage.local.set({ busy: Date.now() });
   const out = [];
   try {
-    for (const f of [syncStudents, syncTeachers]) { try { out.push(await f(pin)); } catch (e) { out.push('خطأ: ' + (e.message || e)); } }
+    for (const f of [syncStudents, syncTeachers, syncBehavior]) { try { out.push(await f(pin)); } catch (e) { out.push('خطأ: ' + (e.message || e)); } }
     // دليل الطلاب وجوالات أولياء الأمور: مرة يومياً، ويدوياً دائماً
     const dd = await chrome.storage.local.get('dirDay');
     if (manual || dd.dirDay !== today()) { try { const line = await syncDirectory(pin); out.push(line); if (/✅/.test(line)) await chrome.storage.local.set({ dirDay: today() }); } catch (e) { out.push('خطأ: ' + (e.message || e)); } }
