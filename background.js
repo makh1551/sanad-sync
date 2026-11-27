@@ -305,12 +305,13 @@ async function syncAll(manual) {
     // المهام السريعة أولاً: حضور الطلاب والمعلمين والسلوك
     for (const f of [syncStudents, syncTeachers, syncBehavior]) { try { out.push(await f(pin)); } catch (e) { out.push('خطأ: ' + (e.message || e)); } }
     // المهام الطويلة تُنفَّذ واحدة واحدة في الخلفية، كل مهمة في تشغيل مستقل حتى لا يوقفها المتصفح
-    const st = await chrome.storage.local.get(['dirDay', 'extraDay', 'madLogins', 'madPlan', 'queue']);
+    const st = await chrome.storage.local.get(['dirDay', 'extraDay', 'madLogins', 'madPlan', 'ttDay', 'queue']);
     const q = [];
     if (manual || st.dirDay !== today()) q.push('dir');
     if (manual || st.extraDay !== today()) q.push('alerts_abs', 'alerts_late', 'duty_shift', 'duty_super', 'tch_full');
     if (manual || !st.madLogins || Date.now() - st.madLogins > 3 * 3600e3) q.push('logins');
     if (manual || st.madPlan !== today()) q.push('weekly_plan');
+    if (manual || st.ttDay !== today()) q.push('tt_img');
     if (q.length && !(st.queue || []).length) {
       await chrome.storage.local.set({ queue: q, xOk: true });
       chrome.alarms.create('sanadq', { delayInMinutes: 0.5 });
@@ -327,7 +328,8 @@ const JOBS = {
   alerts_abs: p => syncAlerts(p, 'absence'), alerts_late: p => syncAlerts(p, 'late'),
   duty_shift: p => syncDuty(p, 'shift'), duty_super: p => syncDuty(p, 'super'),
   tch_full: syncTeachersFull,
-  logins: p => syncMadrasati(p, 'logins'), weekly_plan: p => syncMadrasati(p, 'weekly_plan')
+  logins: p => syncMadrasati(p, 'logins'), weekly_plan: p => syncMadrasati(p, 'weekly_plan'),
+  tt_img: syncTTImages
 };
 const EXTRA = ['alerts_abs', 'alerts_late', 'duty_shift', 'duty_super', 'tch_full'];
 
@@ -341,6 +343,7 @@ async function runQueue() {
   if (ok && job === 'dir') set.dirDay = today();
   if (ok && job === 'logins') set.madLogins = Date.now();
   if (ok && job === 'weekly_plan') set.madPlan = today();
+  if (ok && job === 'tt_img') set.ttDay = today();
   let xOk = s.xOk !== false; if (EXTRA.includes(job) && !ok) xOk = false; set.xOk = xOk;
   if (job === 'tch_full' && xOk) set.extraDay = today();
   await chrome.storage.local.set(set);
@@ -358,10 +361,30 @@ async function syncCard() {
   const d = await post('/api/sync', pin, { kind: 'card_data' });
   const c = new OffscreenCanvas(1080, 1080);
   drawCard(c.getContext('2d'), d);
+  await post('/api/sync', pin, { kind: 'card', jpg: await toJpg(c) });
+}
+
+async function toJpg(c) {
   const blob = await c.convertToBlob({ type: 'image/jpeg', quality: 0.86 });
   const u = new Uint8Array(await blob.arrayBuffer());
   let bin = ''; for (let i = 0; i < u.length; i += 8192) bin += String.fromCharCode.apply(null, u.subarray(i, i + 8192));
-  await post('/api/sync', pin, { kind: 'card', jpg: btoa(bin) });
+  return btoa(bin);
+}
+
+// صور الجداول الأسبوعية: صورة لكل معلم، مرة في اليوم
+async function syncTTImages(pin) {
+  const d = await post('/api/sync', pin, { kind: 'tt_data' });
+  const T = d.teachers || []; if (!T.length) return 'صور الجداول: لم يصل جدول من سند.';
+  let ok = 0;
+  for (const t of T) {
+    try {
+      const c = new OffscreenCanvas(1280, 820);
+      drawTT(c.getContext('2d'), t, d.periods || []);
+      const r = await post('/api/sync', pin, { kind: 'tt_img', key: t.key, jpg: await toJpg(c) });
+      if (r && r.ok) ok++;
+    } catch (e) {}
+  }
+  return ok ? 'صور الجداول: ' + ok + ' من ' + T.length + ' ✅' : 'صور الجداول: تعذّر الرفع.';
 }
 
 function save(lines, manual) {
